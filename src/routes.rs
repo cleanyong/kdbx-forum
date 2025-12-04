@@ -39,6 +39,8 @@ pub async fn index() -> Html<String> {
     .post-title { font-weight: 600; }
     .post-body { white-space: pre-wrap; margin-top: 0.25rem; }
     .muted { color: #666; font-size: 0.9rem; }
+    .thread-unread { font-weight: 600; }
+    .thread-read { font-weight: 400; }
   </style>
 </head>
 <body>
@@ -87,6 +89,45 @@ pub async fn index() -> Html<String> {
   <script>
     let selectedCategoryId = null;
     let selectedThreadId = null;
+
+    function loadReadState() {
+      try {
+        const raw = localStorage.getItem('kdbx_forum_read_state');
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        return (parsed && typeof parsed === 'object') ? parsed : {};
+      } catch (e) {
+        console.warn('Failed to parse read state from localStorage', e);
+        return {};
+      }
+    }
+
+    function saveReadState(state) {
+      try {
+        localStorage.setItem('kdbx_forum_read_state', JSON.stringify(state));
+      } catch (e) {
+        console.warn('Failed to save read state to localStorage', e);
+      }
+    }
+
+    function markThreadRead(threadId, postCount) {
+      const state = loadReadState();
+      state[threadId] = postCount;
+      saveReadState(state);
+      updateThreadListReadStyles();
+    }
+
+    function updateThreadListReadStyles() {
+      const state = loadReadState();
+      document.querySelectorAll('#threads a[data-thread-id]').forEach(a => {
+        const id = a.dataset.threadId;
+        const postCount = Number(a.dataset.postCount || '0');
+        const lastSeen = state[id] || 0;
+        const isRead = lastSeen >= postCount && postCount > 0;
+        a.classList.toggle('thread-read', isRead);
+        a.classList.toggle('thread-unread', !isRead);
+      });
+    }
 
     function getUsername() {
       const stored = localStorage.getItem('kdbx_forum_username') || '';
@@ -156,14 +197,21 @@ pub async fn index() -> Html<String> {
         ul.appendChild(li);
         return;
       }
+      const readState = loadReadState();
       threads.forEach(th => {
         const li = document.createElement('li');
         const a = document.createElement('a');
+        a.dataset.threadId = th.id;
+        a.dataset.postCount = String(th.post_count || 0);
+        const lastSeen = readState[th.id] || 0;
+        const isRead = lastSeen >= th.post_count && th.post_count > 0;
+        a.className = isRead ? 'thread-read' : 'thread-unread';
         a.textContent = th.title + ' (' + th.post_count + ' posts)';
         a.onclick = () => selectThread(th);
         li.appendChild(a);
         ul.appendChild(li);
       });
+      updateThreadListReadStyles();
     }
 
     async function selectThread(th) {
@@ -196,6 +244,7 @@ pub async fn index() -> Html<String> {
         div.appendChild(body);
         container.appendChild(div);
       });
+      markThreadRead(threadId, Array.isArray(detail.posts) ? detail.posts.length : 0);
     }
 
     document.getElementById('new-thread-submit').addEventListener('click', async () => {
